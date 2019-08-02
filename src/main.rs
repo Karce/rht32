@@ -7,8 +7,15 @@ extern crate panic_halt; //
 pub use cortex_m::asm::nop;
 pub use cortex_m_rt::entry;
 
-use f3::hal::stm32f30x::{self};
-
+// use embedded_hal::digital::*;
+use f3::hal::delay::Delay;
+use f3::hal::prelude::*;
+use f3::hal::prelude::_embedded_hal_digital_OutputPin;
+use f3::hal::prelude::_embedded_hal_digital_InputPin;
+//use f3::hal::digital::v2::InputPin;
+use f3::led::Led;
+use f3::hal::stm32f30x::{self, GPIOC};
+/*
 #[inline(never)]
 fn delay(p: &stm32f30x::Peripherals, ms: u16) {
     // Set the timer to go off in `ms` ticks
@@ -24,32 +31,120 @@ fn delay(p: &stm32f30x::Peripherals, ms: u16) {
     // Clear the update event flag
     p.TIM6.sr.modify(|_, w| w.uif().clear_bit());
 }
+*/
 
 #[entry]
 fn main() -> ! {
+    let MAX_TIME = 32_000;
     let mut reading: [u8; 5] = [0; 5];
-    let peripherals = stm32f30x::Peripherals::take().unwrap();
+    let cp = cortex_m::Peripherals::take().unwrap();
+    let dp = stm32f30x::Peripherals::take().unwrap();
 
-    peripherals.RCC.apb1enr.modify(|_, w| w.tim6en().set_bit());
+    let mut flash = dp.FLASH.constrain();
+    let mut rcc = dp.RCC.constrain();
+    let mut gpioe = dp.GPIOE.split(&mut rcc.ahb);
+    let mut gpioc = dp.GPIOC.split(&mut rcc.ahb);
+
+    let clocks = rcc.cfgr.freeze(&mut flash.acr);
+
+    let mut led: Led = gpioe
+        .pe8
+        .into_push_pull_output(&mut gpioe.moder, &mut gpioe.otyper)
+        .into();
+    let mut delay = Delay::new(cp.SYST, clocks);
+    // let mut pc1 = gpioc.pc1;
+
+    led.on();
+    let mut count = 0;
+    let mut error = false;
+    let mut pc1_out = gpioc.pc1.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+    // pc1_out.set_high();
+    // delay.delay_ms(500_u16);
+    pc1_out.set_low();
+    delay.delay_us(500_u16);
+    pc1_out.set_high();
+    delay.delay_us(30_u16);
+    let mut pc1_in = pc1_out.into_floating_input(&mut gpioc.moder, &mut gpioc.pupdr);
+    delay.delay_us(40_u16);
+
+    if !unsafe {(*GPIOC::ptr()).idr.read().idr1().bit()} {
+        delay.delay_us(80_u16);
+        if unsafe {(*GPIOC::ptr()).idr.read().idr1().bit()} {
+            // This is good.
+            error = false;
+        }
+    }
+    
+    while unsafe {(*GPIOC::ptr()).idr.read().idr1().bit()} {
+        count += 1;
+        if count >= MAX_TIME {
+            error = true;
+            break;
+        }
+    }
+    let mut lows: [u32; 41] = [0; 41];
+    let mut highs: [u32; 41] = [0; 41];
+    for i in 0..41 {
+        // 41 * 2
+        while !unsafe {(*GPIOC::ptr()).idr.read().idr1().bit()} {
+            lows[i] += 1;
+            if lows[i] >= MAX_TIME {
+                error = true;
+                break;
+            }
+        }
+        while unsafe {(*GPIOC::ptr()).idr.read().idr1().bit()} {
+            highs[i] += 1;
+            if highs[i] >= MAX_TIME {
+                error = true;
+                break;
+            }
+        }
+        
+    }
+    let mut threshold: u32 = 0;
+    for i in 1..41 {
+        threshold += lows[i];
+    }
+    threshold /= 40;
+
+    for i in 1..41 {
+        let index = (i-1)/16;    
+        reading[index] <<= 1;
+        if highs[i] > threshold {
+            reading[index] |= 1;
+        }
+    }
+    led.off();
+    delay.delay_ms(2_000_u16);
+
+    loop {}
+
+    // peripherals.RCC.apb1enr.modify(|_, w| w.tim6en().set_bit());
     // peripherals.RCC.apb1enr.modify(|_, w| w.tim2en().set_bit());
-    peripherals.RCC.ahbenr.modify(|_, w| w.iopeen().set_bit());
+    // peripherals.RCC.ahbenr.modify(|_, w| w.iopeen().set_bit());
     // Power on IO Port C.
-    peripherals.RCC.ahbenr.modify(|_, w| w.iopcen().set_bit());
+    // peripherals.RCC.ahbenr.modify(|_, w| w.iopcen().set_bit());
+    // peripherals.GPIOC.moder.modify(|_, w| w.moder1().output());
+    // peripherals.GPIOC.odr.write(|w| w.odr1().set_bit());
 
-    peripherals.TIM6.cr1.write(|w| w.opm().set_bit().cen().clear_bit());
+    //peripherals.TIM6.cr1.write(|w| w.opm().set_bit().cen().clear_bit());
     // Configure LED to output mode.
+    /*
     peripherals.GPIOE.moder.modify(|_, w| {
         w.moder8().output()
     });
+    */
 
     // (7_999 + 1) is 1 ms.
-    peripherals.TIM6.psc.write(|w| w.psc().bits(7_999));
+    //peripherals.TIM6.psc.write(|w| w.psc().bits(7_999));
 
     // Configure PA0 to pull up resister mode.
-    peripherals.GPIOC.pupdr.write(|w| unsafe { w.pupdr1().bits(1) });
+    // peripherals.GPIOC.pupdr.write(|w| unsafe { w.pupdr1().bits(1) });
     // Configure PA0 to high speed.
-    peripherals.GPIOC.ospeedr.write(|w| unsafe { w.ospeedr1().bits(3) });
+    // peripherals.GPIOC.ospeedr.write(|w| unsafe { w.ospeedr1().bits(3) });
 
+    /*
     loop {
         // Turn on an LED
         peripherals.GPIOE.odr.write(|w| w.odr8().set_bit());
@@ -66,7 +161,7 @@ fn main() -> ! {
 
         // at 69 iterations: bit turns on in input mode and connection dies.
         // at 68 iterations: bit is still off and count == 0.
-        for _ in 0..69 {}
+        //for _ in 0..500 {}
 
         let mut count = 0;
         while peripherals.GPIOC.idr.read().idr1().bit() {
@@ -128,4 +223,5 @@ fn main() -> ! {
         // Delay for 2 seconds.
         delay(&peripherals, 2_000);
     }
+    */
 }

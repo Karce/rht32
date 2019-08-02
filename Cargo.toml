@@ -10,6 +10,9 @@ cortex-m-rt = "0.6.3"
 panic-halt = "0.2.0"
 panic-itm = "0.4.0"
 
+[dependencies.embedded-hal]
+features = ["unproven"]
+
 [dependencies.f3]
 features = ["rt"]
 version = "0.6.1"
