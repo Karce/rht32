@@ -1,0 +1,21 @@
+[package]
+authors = ["Keaton Bruce <akbruce@protonmail.ch>"]
+edition = "2018"
+name = "rht32"
+version = "0.1.0"
+
+[dependencies]
+cortex-m = "0.5.6"
+cortex-m-rt = "0.6.3"
+panic-halt = "0.2.0"
+panic-itm = "0.4.0"
+
+[dependencies.f3]
+features = ["rt"]
+version = "0.6.1"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
